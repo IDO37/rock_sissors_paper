@@ -27,7 +27,27 @@ CREATE TABLE IF NOT EXISTS game_results (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 3. 게임 결과 삽입 시 자동으로 통계 업데이트하는 트리거 함수 (개선된 버전)
+-- 3. 사용자 생성 시 자동으로 user_stats 레코드 생성하는 함수
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.user_stats (user_id, username, wins, losses, draws, total_games, win_rate)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'username', '플레이어'),
+    0, 0, 0, 0, 0.00
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4. 사용자 생성 트리거
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- 5. 게임 결과 삽입 시 자동으로 통계 업데이트하는 트리거 함수 (개선된 버전)
 CREATE OR REPLACE FUNCTION update_user_stats_on_game_result()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -72,18 +92,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 4. 트리거 생성
+-- 6. 게임 결과 트리거 생성
 DROP TRIGGER IF EXISTS trigger_update_user_stats ON game_results;
 CREATE TRIGGER trigger_update_user_stats
   AFTER INSERT ON game_results
   FOR EACH ROW
   EXECUTE FUNCTION update_user_stats_on_game_result();
 
--- 5. RLS (Row Level Security) 설정
+-- 7. RLS (Row Level Security) 설정
 ALTER TABLE user_stats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE game_results ENABLE ROW LEVEL SECURITY;
 
--- 6. 사용자 통계 테이블 정책 (더 관대한 정책)
+-- 8. 사용자 통계 테이블 정책 (더 관대한 정책)
 CREATE POLICY "Users can view all user stats" ON user_stats
   FOR SELECT USING (true);
 
@@ -93,7 +113,7 @@ CREATE POLICY "Users can insert their own stats" ON user_stats
 CREATE POLICY "Users can update their own stats" ON user_stats
   FOR UPDATE USING (auth.uid() = user_id);
 
--- 7. 게임 결과 테이블 정책 (더 관대한 정책)
+-- 9. 게임 결과 테이블 정책 (더 관대한 정책)
 CREATE POLICY "Users can view all game results" ON game_results
   FOR SELECT USING (true);
 
@@ -103,13 +123,13 @@ CREATE POLICY "Users can insert their own game results" ON game_results
 CREATE POLICY "Users can delete their own game results" ON game_results
   FOR DELETE USING (auth.uid() = user_id);
 
--- 8. 인덱스 생성 (성능 최적화)
+-- 10. 인덱스 생성 (성능 최적화)
 CREATE INDEX IF NOT EXISTS idx_user_stats_user_id ON user_stats(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_stats_win_rate ON user_stats(win_rate DESC);
 CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
 CREATE INDEX IF NOT EXISTS idx_game_results_played_at ON game_results(played_at DESC);
 
--- 9. 기존 데이터 마이그레이션 (필요한 경우)
+-- 11. 기존 데이터 마이그레이션 (필요한 경우)
 -- 기존 game_results 테이블의 데이터를 user_stats로 마이그레이션
 INSERT INTO user_stats (user_id, username, wins, losses, draws, total_games, win_rate)
 SELECT 
@@ -133,5 +153,17 @@ ON CONFLICT (user_id) DO UPDATE SET
   win_rate = EXCLUDED.win_rate,
   last_updated = NOW();
 
--- 10. CORS 및 인증 설정 (Supabase Dashboard에서도 설정 필요)
+-- 12. 기존 사용자들을 위한 user_stats 레코드 생성 (필요한 경우)
+INSERT INTO user_stats (user_id, username, wins, losses, draws, total_games, win_rate)
+SELECT 
+  au.id,
+  COALESCE(au.raw_user_meta_data->>'username', '플레이어'),
+  0, 0, 0, 0, 0.00
+FROM auth.users au
+WHERE NOT EXISTS (
+  SELECT 1 FROM user_stats us WHERE us.user_id = au.id
+)
+ON CONFLICT (user_id) DO NOTHING;
+
+-- 13. CORS 및 인증 설정 (Supabase Dashboard에서도 설정 필요)
 -- 이 부분은 Supabase Dashboard에서 설정해야 합니다 

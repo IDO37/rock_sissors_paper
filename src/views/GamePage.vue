@@ -218,6 +218,12 @@ const resultClass = computed(() => {
 
 onMounted(async () => {
   if (authStore.user) {
+    // 사용자 통계 레코드 확인 및 생성
+    await authStore.ensureUserStats(
+      authStore.user.id, 
+      authStore.user.user_metadata?.username || '플레이어'
+    )
+    
     await Promise.all([
       gameStore.fetchUserHistory(authStore.user.id),
       fetchUserStats()

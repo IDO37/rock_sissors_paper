@@ -94,14 +94,24 @@
     <aside class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 h-fit lg:order-last order-first">
       <div class="flex justify-between items-center mb-6">
         <h3 class="text-center flex-1">최근 게임 기록</h3>
-        <button 
-          @click="refreshData" 
-          :disabled="gameStore.loading"
-          class="p-2 border-none rounded-lg bg-white/20 text-white cursor-pointer transition-all duration-300 hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
-          title="새로고침"
-        >
-          🔄
-        </button>
+        <div class="flex gap-2">
+          <button 
+            @click="refreshData" 
+            :disabled="gameStore.loading"
+            class="p-2 border-none rounded-lg bg-white/20 text-white cursor-pointer transition-all duration-300 hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="새로고침"
+          >
+            🔄
+          </button>
+          <button 
+            @click="showResetConfirm" 
+            :disabled="gameStore.loading"
+            class="p-2 border-none rounded-lg bg-red-500/20 text-red-300 cursor-pointer transition-all duration-300 hover:bg-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="기록 초기화"
+          >
+            🗑️
+          </button>
+        </div>
       </div>
       <div class="space-y-4">
         <div 
@@ -124,6 +134,35 @@
       </div>
     </aside>
   </div>
+
+  <!-- 초기화 확인 대화상자 -->
+  <div v-if="showResetDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-8 max-w-md mx-4 text-white">
+      <div class="text-center mb-6">
+        <div class="text-4xl mb-4">⚠️</div>
+        <h3 class="text-xl font-bold mb-2">기록 초기화</h3>
+        <p class="text-sm opacity-80">
+          모든 게임 기록과 통계가 삭제됩니다.<br>
+          이 작업은 되돌릴 수 없습니다.
+        </p>
+      </div>
+      
+      <div class="flex gap-4">
+        <button 
+          @click="cancelReset"
+          class="flex-1 py-3 px-6 border-none rounded-xl bg-white/20 text-white font-bold cursor-pointer transition-all duration-300 hover:bg-white/30"
+        >
+          취소
+        </button>
+        <button 
+          @click="resetUserStats"
+          class="flex-1 py-3 px-6 border-none rounded-xl bg-red-500 text-white font-bold cursor-pointer transition-all duration-300 hover:bg-red-600"
+        >
+          초기화
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -141,6 +180,7 @@ const gameResult = ref(null)
 const playerChoice = ref(null)
 const computerChoice = ref(null)
 const userStats = ref(null)
+const showResetDialog = ref(false)
 let subscription = null
 let autoRefreshInterval = null
 
@@ -339,6 +379,44 @@ const refreshData = async () => {
     ])
     calculateStats()
   }
+}
+
+// 초기화 확인 대화상자 표시
+const showResetConfirm = () => {
+  showResetDialog.value = true
+}
+
+// 기록 초기화 실행
+const resetUserStats = async () => {
+  if (authStore.user) {
+    try {
+      const success = await gameStore.resetUserStats(authStore.user.id)
+      if (success) {
+        // 로컬 데이터 초기화
+        gameStore.gameHistory = []
+        stats.wins = 0
+        stats.losses = 0
+        stats.draws = 0
+        userStats.value = null
+        
+        // 리더보드 업데이트
+        await gameStore.fetchLeaderboard()
+        
+        console.log('사용자 기록 초기화 성공')
+      } else {
+        console.error('사용자 기록 초기화 실패')
+      }
+    } catch (error) {
+      console.error('초기화 중 오류 발생:', error)
+    } finally {
+      showResetDialog.value = false
+    }
+  }
+}
+
+// 초기화 취소
+const cancelReset = () => {
+  showResetDialog.value = false
 }
 </script>
 

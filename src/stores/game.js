@@ -120,6 +120,43 @@ export const useGameStore = defineStore('game', () => {
     }
   }
 
+  // 사용자 통계 초기화
+  const resetUserStats = async (userId) => {
+    try {
+      // 1. 게임 결과 삭제
+      const { error: gameError } = await supabase
+        .from('game_results')
+        .delete()
+        .eq('user_id', userId)
+
+      if (gameError) throw gameError
+
+      // 2. 사용자 통계 초기화
+      const { error: statsError } = await supabase
+        .from('user_stats')
+        .update({
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          total_games: 0,
+          win_rate: 0.00,
+          last_updated: new Date().toISOString()
+        })
+        .eq('user_id', userId)
+
+      if (statsError) throw statsError
+
+      // 3. 로컬 상태 초기화
+      gameHistory.value = []
+      lastUpdate.value = new Date()
+
+      return true
+    } catch (error) {
+      console.error('사용자 통계 초기화 오류:', error)
+      return false
+    }
+  }
+
   // 주기적 새로고침 (30초마다)
   const startAutoRefresh = (userId) => {
     const interval = setInterval(async () => {
@@ -188,6 +225,7 @@ export const useGameStore = defineStore('game', () => {
     fetchUserHistory,
     fetchLeaderboard,
     fetchUserStats,
+    resetUserStats,
     subscribeToGameResults,
     startAutoRefresh
   }

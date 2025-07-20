@@ -100,6 +100,9 @@ CREATE POLICY "Users can view all game results" ON game_results
 CREATE POLICY "Users can insert their own game results" ON game_results
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+CREATE POLICY "Users can delete their own game results" ON game_results
+  FOR DELETE USING (auth.uid() = user_id);
+
 -- 8. 인덱스 생성 (성능 최적화)
 CREATE INDEX IF NOT EXISTS idx_user_stats_user_id ON user_stats(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_stats_win_rate ON user_stats(win_rate DESC);

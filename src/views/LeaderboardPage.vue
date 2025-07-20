@@ -3,8 +3,8 @@
     <header class="text-center mb-12">
       <h1 class="text-5xl md:text-6xl font-bold mb-4 text-shadow-lg">🏆 리더보드</h1>
       <p class="text-xl mb-8 opacity-90">가위바위보 게임 승률 순위</p>
-      <router-link to="/" class="inline-block py-3 px-6 bg-white/20 text-white no-underline rounded-full transition-all duration-300 hover:bg-white/30 hover:transform hover:-translate-y-1">
-        홈으로 돌아가기
+      <router-link to="/game" class="inline-block py-3 px-6 bg-white/20 text-white no-underline rounded-full transition-all duration-300 hover:bg-white/30 hover:transform hover:-translate-y-1">
+        게임으로 돌아가기
       </router-link>
     </header>
 
@@ -130,12 +130,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useGameStore } from '../stores/game'
 import { useAuthStore } from '../stores/auth'
 
 const gameStore = useGameStore()
 const authStore = useAuthStore()
+let subscription = null
 
 const topThree = computed(() => {
   return gameStore.leaderboard.slice(0, 3)
@@ -170,6 +171,18 @@ const refreshLeaderboard = async () => {
 
 onMounted(async () => {
   await gameStore.fetchLeaderboard()
+  
+  // 실시간 업데이트 구독 (모든 게임 결과 변경 감지)
+  if (authStore.user) {
+    subscription = gameStore.subscribeToGameResults(authStore.user.id)
+  }
+})
+
+onUnmounted(() => {
+  // 구독 해제
+  if (subscription) {
+    subscription.unsubscribe()
+  }
 })
 </script>
 

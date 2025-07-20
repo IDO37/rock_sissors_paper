@@ -117,7 +117,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useGameStore } from '../stores/game'
@@ -130,6 +130,7 @@ const isPlaying = ref(false)
 const gameResult = ref(null)
 const playerChoice = ref(null)
 const computerChoice = ref(null)
+let subscription = null
 
 const choices = [
   { value: 'rock', label: '바위', emoji: '✊' },
@@ -167,6 +168,16 @@ onMounted(async () => {
   if (authStore.user) {
     await gameStore.fetchUserHistory(authStore.user.id)
     calculateStats()
+    
+    // 실시간 업데이트 구독
+    subscription = gameStore.subscribeToGameResults(authStore.user.id)
+  }
+})
+
+onUnmounted(() => {
+  // 구독 해제
+  if (subscription) {
+    subscription.unsubscribe()
   }
 })
 
@@ -221,16 +232,22 @@ const playGame = async (choice) => {
   
   isPlaying.value = false
   
-  // 결과 저장
+  // 결과 저장 및 실시간 업데이트
   if (authStore.user) {
-    await gameStore.saveGameResult(
+    const saveResult = await gameStore.saveGameResult(
       authStore.user.id,
       authStore.user.user_metadata?.username || '플레이어',
       choice,
       computerChoice.value,
       result
     )
-    calculateStats()
+    
+    if (saveResult.success) {
+      // 통계 즉시 업데이트
+      calculateStats()
+    } else {
+      console.error('게임 결과 저장 실패:', saveResult.error)
+    }
   }
 }
 
@@ -253,6 +270,10 @@ const resetGame = () => {
 }
 
 const handleLogout = async () => {
+  // 구독 해제
+  if (subscription) {
+    subscription.unsubscribe()
+  }
   await authStore.signOut()
   router.push('/')
 }

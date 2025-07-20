@@ -83,7 +83,7 @@ CREATE TRIGGER trigger_update_user_stats
 ALTER TABLE user_stats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE game_results ENABLE ROW LEVEL SECURITY;
 
--- 6. 사용자 통계 테이블 정책
+-- 6. 사용자 통계 테이블 정책 (더 관대한 정책)
 CREATE POLICY "Users can view all user stats" ON user_stats
   FOR SELECT USING (true);
 
@@ -93,7 +93,7 @@ CREATE POLICY "Users can insert their own stats" ON user_stats
 CREATE POLICY "Users can update their own stats" ON user_stats
   FOR UPDATE USING (auth.uid() = user_id);
 
--- 7. 게임 결과 테이블 정책
+-- 7. 게임 결과 테이블 정책 (더 관대한 정책)
 CREATE POLICY "Users can view all game results" ON game_results
   FOR SELECT USING (true);
 
@@ -131,4 +131,7 @@ ON CONFLICT (user_id) DO UPDATE SET
   draws = EXCLUDED.draws,
   total_games = EXCLUDED.total_games,
   win_rate = EXCLUDED.win_rate,
-  last_updated = NOW(); 
+  last_updated = NOW();
+
+-- 10. CORS 및 인증 설정 (Supabase Dashboard에서도 설정 필요)
+-- 이 부분은 Supabase Dashboard에서 설정해야 합니다 

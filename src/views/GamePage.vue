@@ -1,49 +1,51 @@
 <template>
-  <div class="game-page">
-    <header class="game-header">
-      <div class="user-info">
-        <span class="username">{{ authStore.user?.user_metadata?.username || '플레이어' }}</span>
-        <button @click="handleLogout" class="logout-btn">로그아웃</button>
+  <div class="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-8 p-8 text-white">
+    <header class="lg:col-span-2 flex flex-col md:flex-row justify-between items-center bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-8">
+      <div class="flex items-center gap-4 mb-4 md:mb-0">
+        <span class="text-xl font-bold">{{ authStore.user?.user_metadata?.username || '플레이어' }}</span>
+        <button @click="handleLogout" class="py-2 px-4 border-none rounded-lg bg-white/20 text-white cursor-pointer transition-all duration-300 hover:bg-white/30">
+          로그아웃
+        </button>
       </div>
-      <div class="score-board">
-        <div class="score-item">
-          <span class="score-label">승</span>
-          <span class="score-value">{{ stats.wins }}</span>
+      <div class="flex gap-8">
+        <div class="text-center">
+          <span class="block text-sm opacity-80">승</span>
+          <span class="block text-2xl font-bold">{{ stats.wins }}</span>
         </div>
-        <div class="score-item">
-          <span class="score-label">패</span>
-          <span class="score-value">{{ stats.losses }}</span>
+        <div class="text-center">
+          <span class="block text-sm opacity-80">패</span>
+          <span class="block text-2xl font-bold">{{ stats.losses }}</span>
         </div>
-        <div class="score-item">
-          <span class="score-label">무승부</span>
-          <span class="score-value">{{ stats.draws }}</span>
+        <div class="text-center">
+          <span class="block text-sm opacity-80">무승부</span>
+          <span class="block text-2xl font-bold">{{ stats.draws }}</span>
         </div>
       </div>
     </header>
 
-    <main class="game-main">
-      <div class="game-title">
-        <h1>가위바위보 게임</h1>
+    <main class="flex flex-col items-center justify-center min-h-[60vh]">
+      <div class="text-center mb-12">
+        <h1 class="text-4xl font-bold mb-2">가위바위보 게임</h1>
         <p>컴퓨터와 대결하세요!</p>
       </div>
 
-      <div class="game-area">
+      <div class="w-full max-w-2xl text-center">
         <!-- 결과 표시 -->
-        <div v-if="gameResult" class="result-display">
-          <div class="result-message" :class="resultClass">
+        <div v-if="gameResult" class="mb-8">
+          <div :class="['text-3xl font-bold mb-8 animate-pop-in', resultClass]">
             {{ resultMessage }}
           </div>
-          <div class="choices-display">
-            <div class="choice player-choice">
-              <div class="choice-label">당신</div>
-              <div class="choice-emoji" :class="{ 'winner': gameResult === 'win' }">
+          <div class="flex justify-center items-center gap-12 mb-8">
+            <div class="text-center">
+              <div class="text-sm mb-4 opacity-80">당신</div>
+              <div :class="['text-6xl animate-pop-in', { 'animate-winner': gameResult === 'win' }]">
                 {{ getChoiceEmoji(playerChoice) }}
               </div>
             </div>
-            <div class="vs">VS</div>
-            <div class="choice computer-choice">
-              <div class="choice-label">컴퓨터</div>
-              <div class="choice-emoji" :class="{ 'winner': gameResult === 'lose' }">
+            <div class="text-3xl font-bold opacity-70">VS</div>
+            <div class="text-center">
+              <div class="text-sm mb-4 opacity-80">컴퓨터</div>
+              <div :class="['text-6xl animate-pop-in', { 'animate-winner': gameResult === 'lose' }]">
                 {{ getChoiceEmoji(computerChoice) }}
               </div>
             </div>
@@ -51,63 +53,62 @@
         </div>
 
         <!-- 게임 선택 버튼 -->
-        <div class="game-choices" v-if="!isPlaying">
-          <h3>선택하세요:</h3>
-          <div class="choice-buttons">
+        <div class="mb-8" v-if="!isPlaying">
+          <h3 class="text-2xl mb-8">선택하세요:</h3>
+          <div class="flex flex-col md:flex-row justify-center gap-8">
             <button 
               v-for="choice in choices" 
               :key="choice.value"
               @click="playGame(choice.value)"
-              class="choice-btn"
+              class="flex flex-col items-center gap-2 py-8 px-6 border-none rounded-2xl bg-white/10 backdrop-blur-lg text-white cursor-pointer transition-all duration-300 hover:bg-white/20 hover:transform hover:-translate-y-1 min-w-[120px] disabled:opacity-50 disabled:cursor-not-allowed"
               :disabled="isPlaying"
             >
-              <span class="choice-emoji">{{ choice.emoji }}</span>
-              <span class="choice-text">{{ choice.label }}</span>
+              <span class="text-5xl">{{ choice.emoji }}</span>
+              <span class="text-base font-bold">{{ choice.label }}</span>
             </button>
           </div>
         </div>
 
         <!-- 게임 진행 중 애니메이션 -->
-        <div v-if="isPlaying" class="game-animation">
-          <div class="shaking-hands">
-            <div class="hand player-hand">✊</div>
-            <div class="hand computer-hand">✊</div>
+        <div v-if="isPlaying" class="my-8">
+          <div class="flex justify-center gap-12 mb-8">
+            <div class="text-6xl animate-shake">✊</div>
+            <div class="text-6xl animate-shake">✊</div>
           </div>
-          <p class="thinking-text">컴퓨터가 생각 중...</p>
+          <p class="text-xl opacity-80">컴퓨터가 생각 중...</p>
         </div>
       </div>
 
       <!-- 다시하기 버튼 -->
-      <div v-if="gameResult" class="game-actions">
-        <button @click="resetGame" class="play-again-btn">
+      <div v-if="gameResult" class="flex gap-4 mt-8">
+        <button @click="resetGame" class="py-4 px-8 border-none rounded-xl bg-gradient-to-r from-green-400 to-green-600 text-white text-base font-bold cursor-pointer transition-all duration-300 hover:transform hover:-translate-y-1 hover:shadow-lg">
           다시하기
         </button>
-        <router-link to="/leaderboard" class="leaderboard-btn">
+        <router-link to="/leaderboard" class="py-4 px-8 border-none rounded-xl bg-white/20 text-white text-base font-bold cursor-pointer transition-all duration-300 hover:transform hover:-translate-y-1 hover:shadow-lg no-underline">
           리더보드 보기
         </router-link>
       </div>
     </main>
 
     <!-- 게임 기록 -->
-    <aside class="game-history">
-      <h3>최근 게임 기록</h3>
-      <div class="history-list">
+    <aside class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 h-fit lg:order-last order-first">
+      <h3 class="mb-6 text-center">최근 게임 기록</h3>
+      <div class="space-y-4">
         <div 
           v-for="(game, index) in gameStore.gameHistory.slice(0, 5)" 
           :key="index"
-          class="history-item"
-          :class="getHistoryItemClass(game.result)"
+          :class="['flex justify-between items-center p-4 bg-white/10 rounded-xl border-l-4', getHistoryItemClass(game.result)]"
         >
-          <div class="history-choices">
+          <div class="flex items-center gap-2">
             <span>{{ getChoiceEmoji(game.player_choice) }}</span>
-            <span class="vs-small">vs</span>
+            <span class="text-sm opacity-70">vs</span>
             <span>{{ getChoiceEmoji(game.computer_choice) }}</span>
           </div>
-          <div class="history-result">
+          <div class="font-bold text-sm">
             {{ getResultText(game.result) }}
           </div>
         </div>
-        <div v-if="gameStore.gameHistory.length === 0" class="no-history">
+        <div v-if="gameStore.gameHistory.length === 0" class="text-center opacity-70 italic">
           아직 게임 기록이 없습니다.
         </div>
       </div>
@@ -154,7 +155,12 @@ const resultMessage = computed(() => {
 
 const resultClass = computed(() => {
   if (!gameResult.value) return ''
-  return `result-${gameResult.value}`
+  const classes = {
+    win: 'text-green-400',
+    lose: 'text-red-400',
+    draw: 'text-yellow-400'
+  }
+  return classes[gameResult.value]
 })
 
 onMounted(async () => {
@@ -190,7 +196,12 @@ const getResultText = (result) => {
 }
 
 const getHistoryItemClass = (result) => {
-  return `history-${result}`
+  const classes = {
+    win: 'border-green-400',
+    lose: 'border-red-400',
+    draw: 'border-yellow-400'
+  }
+  return classes[result] || 'border-transparent'
 }
 
 const playGame = async (choice) => {

@@ -10,7 +10,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div id="app">
+  <div id="app" class="min-h-screen">
     <router-view />
   </div>
 </template>

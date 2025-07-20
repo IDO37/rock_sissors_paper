@@ -6,11 +6,13 @@ export const useGameStore = defineStore('game', () => {
   const gameHistory = ref([])
   const leaderboard = ref([])
   const loading = ref(false)
+  const lastUpdate = ref(null)
 
-  // 게임 결과 저장
+  // 게임 결과 저장 및 통계 업데이트
   const saveGameResult = async (userId, username, playerChoice, computerChoice, result) => {
     try {
-      const { data, error } = await supabase
+      // 1. 게임 결과 저장
+      const { data: gameData, error: gameError } = await supabase
         .from('game_results')
         .insert([
           {
@@ -24,11 +26,35 @@ export const useGameStore = defineStore('game', () => {
         ])
         .select()
 
-      if (error) throw error
-      
-      // 새 게임 결과를 기록에 추가
-      if (data && data[0]) {
-        gameHistory.value.unshift(data[0])
+      if (gameError) throw gameError
+
+      // 2. 사용자 통계 업데이트 (upsert 방식)
+      const { error: statsError } = await supabase
+        .from('user_stats')
+        .upsert([
+          {
+            user_id: userId,
+            username: username,
+            last_updated: new Date().toISOString()
+          }
+        ], {
+          onConflict: 'user_id'
+        })
+
+      if (statsError) throw statsError
+
+      // 3. 통계 증가 (PostgreSQL의 atomic update 사용)
+      const updateField = result === 'win' ? 'wins' : result === 'lose' ? 'losses' : 'draws'
+      const { error: updateError } = await supabase.rpc('increment_user_stats', {
+        user_id_param: userId,
+        field_name: updateField
+      })
+
+      if (updateError) throw updateError
+
+      // 4. 새 게임 결과를 기록에 추가
+      if (gameData && gameData[0]) {
+        gameHistory.value.unshift(gameData[0])
         
         // 최근 10개만 유지
         if (gameHistory.value.length > 10) {
@@ -36,10 +62,13 @@ export const useGameStore = defineStore('game', () => {
         }
       }
 
-      // 리더보드 즉시 업데이트
+      // 5. 마지막 업데이트 시간 기록
+      lastUpdate.value = new Date()
+      
+      // 6. 리더보드 즉시 업데이트
       await fetchLeaderboard()
       
-      return { success: true, data: data?.[0] }
+      return { success: true, data: gameData?.[0] }
     } catch (error) {
       console.error('게임 결과 저장 오류:', error)
       return { success: false, error: error.message }
@@ -60,6 +89,7 @@ export const useGameStore = defineStore('game', () => {
       if (error) throw error
       
       gameHistory.value = data || []
+      lastUpdate.value = new Date()
     } catch (error) {
       console.error('게임 기록 가져오기 오류:', error)
     } finally {
@@ -67,39 +97,28 @@ export const useGameStore = defineStore('game', () => {
     }
   }
 
-  // 리더보드 가져오기
+  // 리더보드 가져오기 (user_stats 테이블 사용)
   const fetchLeaderboard = async () => {
     try {
       loading.value = true
       const { data, error } = await supabase
-        .from('game_results')
-        .select('username, result, played_at')
-        .order('played_at', { ascending: false })
+        .from('user_stats')
+        .select('username, wins, losses, draws, total_games, win_rate')
+        .order('win_rate', { ascending: false })
+        .order('total_games', { ascending: false })
+        .limit(20)
 
       if (error) throw error
 
-      // 승률 계산
-      const userStats = {}
-      data.forEach(game => {
-        if (!userStats[game.username]) {
-          userStats[game.username] = { wins: 0, total: 0 }
-        }
-        userStats[game.username].total++
-        if (game.result === 'win') {
-          userStats[game.username].wins++
-        }
-      })
-
-      // 승률로 정렬
-      leaderboard.value = Object.entries(userStats)
-        .map(([username, stats]) => ({
-          username,
-          wins: stats.wins,
-          total: stats.total,
-          winRate: ((stats.wins / stats.total) * 100).toFixed(1)
-        }))
-        .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate))
-        .slice(0, 20) // 상위 20명까지 표시
+      // 데이터 포맷팅
+      leaderboard.value = data.map(user => ({
+        username: user.username,
+        wins: user.wins || 0,
+        total: user.total_games || 0,
+        winRate: user.win_rate ? user.win_rate.toFixed(1) : '0.0'
+      }))
+      
+      lastUpdate.value = new Date()
     } catch (error) {
       console.error('리더보드 가져오기 오류:', error)
     } finally {
@@ -107,32 +126,79 @@ export const useGameStore = defineStore('game', () => {
     }
   }
 
-  // 실시간 업데이트를 위한 구독 설정
+  // 사용자 통계 가져오기
+  const fetchUserStats = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_stats')
+        .select('*')
+        .eq('user_id', userId)
+        .single()
+
+      if (error) throw error
+      
+      return data
+    } catch (error) {
+      console.error('사용자 통계 가져오기 오류:', error)
+      return null
+    }
+  }
+
+  // 주기적 새로고침 (30초마다)
+  const startAutoRefresh = (userId) => {
+    const interval = setInterval(async () => {
+      if (userId) {
+        await fetchUserHistory(userId)
+      }
+      await fetchLeaderboard()
+    }, 30000) // 30초마다
+
+    return interval
+  }
+
+  // 실시간 업데이트를 위한 구독 설정 (개선된 버전)
   const subscribeToGameResults = (userId) => {
+    console.log('실시간 업데이트 구독 시작:', userId)
+    
     const subscription = supabase
       .channel('game_results_changes')
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
-          table: 'game_results',
-          filter: `user_id=eq.${userId}`
+          table: 'game_results'
         },
-        (payload) => {
-          console.log('실시간 업데이트:', payload)
-          // 사용자 기록 업데이트
-          if (payload.eventType === 'INSERT') {
+        async (payload) => {
+          console.log('새 게임 결과 감지:', payload)
+          
+          // 현재 사용자의 게임이면 기록 업데이트
+          if (payload.new.user_id === userId) {
             gameHistory.value.unshift(payload.new)
             if (gameHistory.value.length > 10) {
               gameHistory.value = gameHistory.value.slice(0, 10)
             }
           }
+          
           // 리더보드 업데이트
-          fetchLeaderboard()
+          await fetchLeaderboard()
         }
       )
-      .subscribe()
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'user_stats'
+        },
+        async (payload) => {
+          console.log('사용자 통계 업데이트 감지:', payload)
+          await fetchLeaderboard()
+        }
+      )
+      .subscribe((status) => {
+        console.log('구독 상태:', status)
+      })
 
     return subscription
   }
@@ -141,9 +207,12 @@ export const useGameStore = defineStore('game', () => {
     gameHistory,
     leaderboard,
     loading,
+    lastUpdate,
     saveGameResult,
     fetchUserHistory,
     fetchLeaderboard,
-    subscribeToGameResults
+    fetchUserStats,
+    subscribeToGameResults,
+    startAutoRefresh
   }
 }) 

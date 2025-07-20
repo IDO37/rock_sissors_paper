@@ -137,6 +137,7 @@ import { useAuthStore } from '../stores/auth'
 const gameStore = useGameStore()
 const authStore = useAuthStore()
 let subscription = null
+let autoRefreshInterval = null
 
 const topThree = computed(() => {
   return gameStore.leaderboard.slice(0, 3)
@@ -174,7 +175,17 @@ onMounted(async () => {
   
   // 실시간 업데이트 구독 (모든 게임 결과 변경 감지)
   if (authStore.user) {
-    subscription = gameStore.subscribeToGameResults(authStore.user.id)
+    try {
+      subscription = gameStore.subscribeToGameResults(authStore.user.id)
+      console.log('리더보드 실시간 업데이트 구독 성공')
+    } catch (error) {
+      console.error('리더보드 실시간 업데이트 구독 실패:', error)
+    }
+    
+    // 주기적 새로고침 시작 (10초마다 - 더 자주 업데이트)
+    autoRefreshInterval = setInterval(async () => {
+      await gameStore.fetchLeaderboard()
+    }, 10000) // 10초마다
   }
 })
 
@@ -182,6 +193,13 @@ onUnmounted(() => {
   // 구독 해제
   if (subscription) {
     subscription.unsubscribe()
+    console.log('리더보드 실시간 업데이트 구독 해제')
+  }
+  
+  // 주기적 새로고침 중지
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval)
+    console.log('리더보드 주기적 새로고침 중지')
   }
 })
 </script>

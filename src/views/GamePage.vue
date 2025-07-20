@@ -92,7 +92,17 @@
 
     <!-- 게임 기록 -->
     <aside class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 h-fit lg:order-last order-first">
-      <h3 class="mb-6 text-center">최근 게임 기록</h3>
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-center flex-1">최근 게임 기록</h3>
+        <button 
+          @click="refreshData" 
+          :disabled="gameStore.loading"
+          class="p-2 border-none rounded-lg bg-white/20 text-white cursor-pointer transition-all duration-300 hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="새로고침"
+        >
+          🔄
+        </button>
+      </div>
       <div class="space-y-4">
         <div 
           v-for="(game, index) in gameStore.gameHistory.slice(0, 5)" 
@@ -130,7 +140,9 @@ const isPlaying = ref(false)
 const gameResult = ref(null)
 const playerChoice = ref(null)
 const computerChoice = ref(null)
+const userStats = ref(null)
 let subscription = null
+let autoRefreshInterval = null
 
 const choices = [
   { value: 'rock', label: '바위', emoji: '✊' },
@@ -166,11 +178,22 @@ const resultClass = computed(() => {
 
 onMounted(async () => {
   if (authStore.user) {
-    await gameStore.fetchUserHistory(authStore.user.id)
+    await Promise.all([
+      gameStore.fetchUserHistory(authStore.user.id),
+      fetchUserStats()
+    ])
     calculateStats()
     
     // 실시간 업데이트 구독
-    subscription = gameStore.subscribeToGameResults(authStore.user.id)
+    try {
+      subscription = gameStore.subscribeToGameResults(authStore.user.id)
+      console.log('실시간 업데이트 구독 성공')
+    } catch (error) {
+      console.error('실시간 업데이트 구독 실패:', error)
+    }
+    
+    // 주기적 새로고침 시작 (백업용)
+    autoRefreshInterval = gameStore.startAutoRefresh(authStore.user.id)
   }
 })
 
@@ -178,14 +201,35 @@ onUnmounted(() => {
   // 구독 해제
   if (subscription) {
     subscription.unsubscribe()
+    console.log('실시간 업데이트 구독 해제')
+  }
+  
+  // 주기적 새로고침 중지
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval)
+    console.log('주기적 새로고침 중지')
   }
 })
 
+const fetchUserStats = async () => {
+  if (authStore.user) {
+    userStats.value = await gameStore.fetchUserStats(authStore.user.id)
+  }
+}
+
 const calculateStats = () => {
-  const history = gameStore.gameHistory
-  stats.wins = history.filter(game => game.result === 'win').length
-  stats.losses = history.filter(game => game.result === 'lose').length
-  stats.draws = history.filter(game => game.result === 'draw').length
+  // Supabase 테이블에서 가져온 통계 사용
+  if (userStats.value) {
+    stats.wins = userStats.value.wins || 0
+    stats.losses = userStats.value.losses || 0
+    stats.draws = userStats.value.draws || 0
+  } else {
+    // 폴백: 게임 기록에서 계산
+    const history = gameStore.gameHistory
+    stats.wins = history.filter(game => game.result === 'win').length
+    stats.losses = history.filter(game => game.result === 'lose').length
+    stats.draws = history.filter(game => game.result === 'draw').length
+  }
 }
 
 const getChoiceEmoji = (choice) => {
@@ -244,7 +288,9 @@ const playGame = async (choice) => {
     
     if (saveResult.success) {
       // 통계 즉시 업데이트
+      await fetchUserStats()
       calculateStats()
+      console.log('게임 결과 저장 성공')
     } else {
       console.error('게임 결과 저장 실패:', saveResult.error)
     }
@@ -274,8 +320,25 @@ const handleLogout = async () => {
   if (subscription) {
     subscription.unsubscribe()
   }
+  
+  // 주기적 새로고침 중지
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval)
+  }
+  
   await authStore.signOut()
   router.push('/')
+}
+
+// 수동 새로고침 함수
+const refreshData = async () => {
+  if (authStore.user) {
+    await Promise.all([
+      gameStore.fetchUserHistory(authStore.user.id),
+      fetchUserStats()
+    ])
+    calculateStats()
+  }
 }
 </script>
 

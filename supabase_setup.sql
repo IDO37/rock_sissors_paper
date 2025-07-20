@@ -27,50 +27,38 @@ CREATE TABLE IF NOT EXISTS game_results (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 3. 통계 증가 함수 생성
-CREATE OR REPLACE FUNCTION increment_user_stats(user_id_param UUID, field_name TEXT)
-RETURNS VOID AS $$
-BEGIN
-  -- 해당 필드 증가
-  EXECUTE format('UPDATE user_stats SET %I = %I + 1 WHERE user_id = $1', field_name, field_name) USING user_id_param;
-  
-  -- total_games 증가
-  UPDATE user_stats SET total_games = total_games + 1 WHERE user_id = user_id_param;
-  
-  -- win_rate 재계산
-  UPDATE user_stats 
-  SET win_rate = CASE 
-    WHEN total_games > 0 THEN (wins::DECIMAL / total_games::DECIMAL) * 100
-    ELSE 0 
-  END
-  WHERE user_id = user_id_param;
-  
-  -- last_updated 업데이트
-  UPDATE user_stats SET last_updated = NOW() WHERE user_id = user_id_param;
-END;
-$$ LANGUAGE plpgsql;
-
--- 4. 게임 결과 삽입 시 자동으로 통계 업데이트하는 트리거 함수
+-- 3. 게임 결과 삽입 시 자동으로 통계 업데이트하는 트리거 함수 (개선된 버전)
 CREATE OR REPLACE FUNCTION update_user_stats_on_game_result()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- 사용자 통계 레코드가 없으면 생성
+  -- 사용자 통계 레코드가 없으면 생성, 있으면 username 업데이트
   INSERT INTO user_stats (user_id, username, wins, losses, draws, total_games, win_rate)
   VALUES (NEW.user_id, NEW.username, 0, 0, 0, 0, 0.00)
-  ON CONFLICT (user_id) DO NOTHING;
+  ON CONFLICT (user_id) DO UPDATE SET
+    username = NEW.username,
+    last_updated = NOW();
   
-  -- 해당 결과 필드 증가
+  -- 해당 결과 필드 증가 (원자적 업데이트)
   CASE NEW.result
     WHEN 'win' THEN
-      UPDATE user_stats SET wins = wins + 1 WHERE user_id = NEW.user_id;
+      UPDATE user_stats SET 
+        wins = wins + 1,
+        total_games = total_games + 1,
+        last_updated = NOW()
+      WHERE user_id = NEW.user_id;
     WHEN 'lose' THEN
-      UPDATE user_stats SET losses = losses + 1 WHERE user_id = NEW.user_id;
+      UPDATE user_stats SET 
+        losses = losses + 1,
+        total_games = total_games + 1,
+        last_updated = NOW()
+      WHERE user_id = NEW.user_id;
     WHEN 'draw' THEN
-      UPDATE user_stats SET draws = draws + 1 WHERE user_id = NEW.user_id;
+      UPDATE user_stats SET 
+        draws = draws + 1,
+        total_games = total_games + 1,
+        last_updated = NOW()
+      WHERE user_id = NEW.user_id;
   END CASE;
-  
-  -- total_games 증가
-  UPDATE user_stats SET total_games = total_games + 1 WHERE user_id = NEW.user_id;
   
   -- win_rate 재계산
   UPDATE user_stats 
@@ -80,25 +68,22 @@ BEGIN
   END
   WHERE user_id = NEW.user_id;
   
-  -- last_updated 업데이트
-  UPDATE user_stats SET last_updated = NOW() WHERE user_id = NEW.user_id;
-  
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- 5. 트리거 생성
+-- 4. 트리거 생성
 DROP TRIGGER IF EXISTS trigger_update_user_stats ON game_results;
 CREATE TRIGGER trigger_update_user_stats
   AFTER INSERT ON game_results
   FOR EACH ROW
   EXECUTE FUNCTION update_user_stats_on_game_result();
 
--- 6. RLS (Row Level Security) 설정
+-- 5. RLS (Row Level Security) 설정
 ALTER TABLE user_stats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE game_results ENABLE ROW LEVEL SECURITY;
 
--- 7. 사용자 통계 테이블 정책
+-- 6. 사용자 통계 테이블 정책
 CREATE POLICY "Users can view all user stats" ON user_stats
   FOR SELECT USING (true);
 
@@ -108,20 +93,20 @@ CREATE POLICY "Users can insert their own stats" ON user_stats
 CREATE POLICY "Users can update their own stats" ON user_stats
   FOR UPDATE USING (auth.uid() = user_id);
 
--- 8. 게임 결과 테이블 정책
+-- 7. 게임 결과 테이블 정책
 CREATE POLICY "Users can view all game results" ON game_results
   FOR SELECT USING (true);
 
 CREATE POLICY "Users can insert their own game results" ON game_results
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- 9. 인덱스 생성 (성능 최적화)
+-- 8. 인덱스 생성 (성능 최적화)
 CREATE INDEX IF NOT EXISTS idx_user_stats_user_id ON user_stats(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_stats_win_rate ON user_stats(win_rate DESC);
 CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
 CREATE INDEX IF NOT EXISTS idx_game_results_played_at ON game_results(played_at DESC);
 
--- 10. 기존 데이터 마이그레이션 (필요한 경우)
+-- 9. 기존 데이터 마이그레이션 (필요한 경우)
 -- 기존 game_results 테이블의 데이터를 user_stats로 마이그레이션
 INSERT INTO user_stats (user_id, username, wins, losses, draws, total_games, win_rate)
 SELECT 

@@ -11,7 +11,7 @@ export const useGameStore = defineStore('game', () => {
   // 게임 결과 저장 및 통계 업데이트
   const saveGameResult = async (userId, username, playerChoice, computerChoice, result) => {
     try {
-      // 1. 게임 결과 저장
+      // 1. 게임 결과 저장 (트리거가 자동으로 통계를 업데이트함)
       const { data: gameData, error: gameError } = await supabase
         .from('game_results')
         .insert([
@@ -28,31 +28,7 @@ export const useGameStore = defineStore('game', () => {
 
       if (gameError) throw gameError
 
-      // 2. 사용자 통계 업데이트 (upsert 방식)
-      const { error: statsError } = await supabase
-        .from('user_stats')
-        .upsert([
-          {
-            user_id: userId,
-            username: username,
-            last_updated: new Date().toISOString()
-          }
-        ], {
-          onConflict: 'user_id'
-        })
-
-      if (statsError) throw statsError
-
-      // 3. 통계 증가 (PostgreSQL의 atomic update 사용)
-      const updateField = result === 'win' ? 'wins' : result === 'lose' ? 'losses' : 'draws'
-      const { error: updateError } = await supabase.rpc('increment_user_stats', {
-        user_id_param: userId,
-        field_name: updateField
-      })
-
-      if (updateError) throw updateError
-
-      // 4. 새 게임 결과를 기록에 추가
+      // 2. 새 게임 결과를 기록에 추가
       if (gameData && gameData[0]) {
         gameHistory.value.unshift(gameData[0])
         
@@ -62,10 +38,10 @@ export const useGameStore = defineStore('game', () => {
         }
       }
 
-      // 5. 마지막 업데이트 시간 기록
+      // 3. 마지막 업데이트 시간 기록
       lastUpdate.value = new Date()
       
-      // 6. 리더보드 즉시 업데이트
+      // 4. 리더보드 즉시 업데이트 (트리거로 통계가 이미 업데이트됨)
       await fetchLeaderboard()
       
       return { success: true, data: gameData?.[0] }
